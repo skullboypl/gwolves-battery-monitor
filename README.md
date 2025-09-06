@@ -55,6 +55,12 @@ python battery.py
   - **Quit** – exit the app
 
 ---
+## ScreenShots
+
+<img width="1432" height="972" alt="{ABD57444-CF54-4EFE-A846-60F3D34AED6A}" src="https://github.com/user-attachments/assets/08805c92-f521-46ac-9351-c0fcff33be6d" />
+<img width="49" height="50" alt="{DD13A08D-DF2E-4B55-B11D-144810049012}" src="https://github.com/user-attachments/assets/7f246b26-cb2e-457d-ae60-ae04e1f09b5b" />
+<img width="199" height="108" alt="{E3575894-1FA0-4E21-854F-6F4CFFBAB92F}" src="https://github.com/user-attachments/assets/2f6c7926-da8a-44e9-9c81-f1c33b9a0b80" />
+
 
 ## 📂 Project structure
 
