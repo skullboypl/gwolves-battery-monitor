@@ -1,0 +1,56 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+coverage.xml
+*.cover
+.cache
+.pytest_cache/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Playwright browser binaries
+ms-playwright/
+
+# Local settings
+*.log
+*.tmp
+
+# Windows / Mac cruft
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Executables
+*.exe
+*.dll
+
+# Project-specific
+gwolves_battery.ico

@@ -1,0 +1,4 @@
+playwright>=1.47.0
+pywinauto>=0.6.8
+pystray>=0.19.5
+Pillow>=10.0.0
