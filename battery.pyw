@@ -3,6 +3,46 @@ from PIL import Image, ImageDraw, ImageFont
 import pystray
 from playwright.async_api import async_playwright
 
+# --- Make Playwright find bundled browsers inside PyInstaller onefile ---
+import sys
+from pathlib import Path
+
+# When running as onefile, PyInstaller extracts to a temp dir in sys._MEIPASS
+_BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+_BROWSERS = _BUNDLE_DIR / "ms-playwright"
+# Tell Playwright to use our bundled browsers dir (not user profile)
+os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(_BROWSERS))
+
+# --- Bootstrap przeglądarki, gdy katalog ms-playwright jest pusty ---
+import subprocess, shutil
+
+def _chromium_present(root: Path) -> bool:
+    try:
+        next(root.rglob("chrome.exe"))
+        return True
+    except StopIteration:
+        return False
+
+# Preferuj lokalny ms-playwright (dla PyInstaller)
+LOCAL_MS = _BROWSERS
+if not LOCAL_MS.exists():
+    LOCAL_MS.mkdir(parents=True, exist_ok=True)
+
+if not _chromium_present(LOCAL_MS):
+    # jeśli brak chromium w lokalnym ms-playwright → zainstaluj tam
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(LOCAL_MS)
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+    except Exception as e:
+        # awaryjnie: spróbuj użyć globalnego cache
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
+else:
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(LOCAL_MS)
+
+
 URL = "https://mouse.xyz"
 POLL_EVERY_SECONDS = 10 * 60
 CONNECT_BUTTONS = ['button:has(.n-button__content:has-text("Connect"))']
@@ -16,13 +56,18 @@ FIRST_READ_TIMEOUT_MS = 30000     # max time to get a stable first read
 
 # ---------- Native WebHID picker auto-click (Windows) ----------
 import time as _t
-from pywinauto import Desktop
+try:
+    from pywinauto import Desktop
+except Exception:
+    Desktop = None  # pozwala uruchomić się bez pywinauto (bez auto-accept)
 
 def auto_accept_hid_dialog(device_index=0, timeout=20):
     """
     Searches the Chromium/Edge native WebHID dialog, selects a device, clicks "Connect".
     Returns True on success.
     """
+    if Desktop is None:
+        return False
     t0 = _t.time()
     title_re = r".*połączyć z urządzeniem HID|.*connect to a HID device"
     while _t.time() - t0 < timeout:
@@ -175,26 +220,47 @@ async def read_stable_percent(page):
     # fallback: if stabilization failed, return last sensible value
     return best
 
-# ---------- Tray ----------
-def make_icon(percent):
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    txt = "--" if percent is None else str(percent)
+async def click_connect_if_present(page):
+    clicked = False
+    for sel in CONNECT_BUTTONS:
+        loc = page.locator(sel).first
+        if await loc.count():
+            try:
+                await loc.click(); clicked = True; break
+            except Exception:
+                pass
+    if not clicked:
+        span = page.locator('.n-button__content:has-text("Connect")').first
+        if await span.count():
+            try:
+                await span.evaluate('el => el.closest("button")?.click()'); clicked = True
+            except Exception:
+                pass
+    return clicked
+
+async def connect_and_read_percent(page, device_index=0):
+    """Flow: reload -> app ready -> Connect -> auto-accept -> HID ready -> stable %."""
+    await page.reload(wait_until="domcontentloaded")
+    await wait_for_app_ready(page)
+
+    # Spróbuj kliknąć „Connect” (jeśli trzeba)
+    await click_connect_if_present(page)
+
+    # Autoklik natywnego selektora WebHID (wątek w tle)
+    threading.Thread(target=auto_accept_hid_dialog,
+                     kwargs={"device_index": device_index, "timeout": 20},
+                     daemon=True).start()
+
+    # Czekaj aż HID będzie autoryzowany
     try:
-        font = ImageFont.truetype("arialbd.ttf", 48)
+        await wait_for_hid_authorized(page, timeout=30000)
     except Exception:
-        try:
-            font = ImageFont.truetype("arial.ttf", 48)
-        except Exception:
-            font = ImageFont.load_default()
-    try:
-        w, h = d.textsize(txt, font=font)
-        y = (64 - h)//2
-    except AttributeError:
-        bbox = d.textbbox((0,0), txt, font=font)
-        w = bbox[2] - bbox[0]; h = bbox[3] - bbox[1]; y = (64 - h)//2 - bbox[1]
-    d.text(((64 - w)//2, y), txt, font=font, fill=(255,255,255,255))
-    return img
+        # jeśli prawo było nadane wcześniej – ok
+        pass
+
+    # Stabilny odczyt po rozgrzaniu
+    pct = await read_stable_percent(page)
+    return pct
 
 # ---------- CDP window helpers ----------
 async def get_window_id(page):
@@ -227,6 +293,7 @@ async def show_window(page, left=(1920-1000)//2, top=(1080-800)//2):
     except Exception:
         pass
 
+# ---------- Tray ----------
 class TrayController:
     def __init__(self):
         self.icon = pystray.Icon("mouse_batt_dom", make_icon(None), "Mouse Battery")
@@ -251,6 +318,26 @@ class TrayController:
         self.icon.icon = make_icon(pct)
         self.icon.title = f"Battery: {pct}%" if pct is not None else "Battery: --"
 
+def make_icon(percent):
+    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    txt = "--" if percent is None else str(percent)
+    try:
+        font = ImageFont.truetype("arialbd.ttf", 48)
+    except Exception:
+        try:
+            font = ImageFont.truetype("arial.ttf", 48)
+        except Exception:
+            font = ImageFont.load_default()
+    try:
+        w, h = d.textsize(txt, font=font)
+        y = (64 - h)//2
+    except AttributeError:
+        bbox = d.textbbox((0,0), txt, font=font)
+        w = bbox[2] - bbox[0]; h = bbox[3] - bbox[1]; y = (64 - h)//2 - bbox[1]
+    d.text(((64 - w)//2, y), txt, font=font, fill=(255,255,255,255))
+    return img
+
 # ---------- Main logic ----------
 async def main_async(tray: TrayController):
     async with async_playwright() as p:
@@ -264,7 +351,12 @@ async def main_async(tray: TrayController):
                 "--enable-experimental-web-platform-features",
                 "--force-dark-mode",
                 "--enable-features=WebContentsForceDark",
-                "--window-size=900,700"
+                "--window-size=900,700",
+                "--disable-session-crashed-bubble",   # blokuje „Przywróć stronę”
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-popup-blocking",
+                "--noerrdialogs",
             ],
             color_scheme="dark"
         )
@@ -274,43 +366,14 @@ async def main_async(tray: TrayController):
         await wait_for_app_ready(page)
         await show_window(page)  # normalize & center-ish
 
-        # 1) Click "Connect" if present
-        clicked = False
-        for sel in CONNECT_BUTTONS:
-            loc = page.locator(sel).first
-            if await loc.count():
-                try:
-                    await loc.click(); clicked = True; break
-                except Exception:
-                    pass
-        if not clicked:
-            span = page.locator('.n-button__content:has-text("Connect")').first
-            if await span.count():
-                try:
-                    await span.evaluate('el => el.closest("button")?.click()'); clicked = True
-                except Exception:
-                    pass
-
-        # 2) Auto-click native HID picker (background thread)
-        threading.Thread(target=auto_accept_hid_dialog,
-                         kwargs={"device_index": 0, "timeout": 20},
-                         daemon=True).start()
-
-        # 3) Wait until HID is authorized
-        try:
-            await wait_for_hid_authorized(page, timeout=30000)
-        except Exception:
-            # If the profile already remembers the permission, this may resolve immediately
-            pass
-
-        # 4) First stable battery read (after warmup)
-        pct = await read_stable_percent(page)
+        # 1) Pierwszy pełny odczyt (z połączeniem HID)
+        pct = await connect_and_read_percent(page, device_index=0)
         tray.set_percent(pct)
         print(f"Start battery: {pct}%")
 
-        # 5) After the first successful read: set title -> wait -> hide from taskbar -> minimize
+        # 2) Po pierwszym odczycie: ustaw tytuł, ukryj z paska, zminimalizuj okno
         await page.evaluate("document.title = 'HID Worker'")
-        await page.wait_for_timeout(500)  # let Windows see the title change
+        await page.wait_for_timeout(500)  # daj Windowsowi czas na zaciągnięcie tytułu
         hide_from_taskbar_by_title("HID Worker")
         await hide_window(page)
         tray._is_hidden = True
@@ -318,29 +381,37 @@ async def main_async(tray: TrayController):
         loop = asyncio.get_event_loop()
 
         async def refresh_once():
-            new_pct, _src = await get_percent_from_dom(page)
+            # Pełny flow z ponownym połączeniem i stabilizacją
+            new_pct = await connect_and_read_percent(page, device_index=0)
             if new_pct is not None:
                 tray.set_percent(new_pct)
                 print(f"[{time.strftime('%H:%M:%S')}] {new_pct}%")
+            # Jeśli okno ma być ukryte – po re-read przywróć stan ukrycia
+            if tray._is_hidden:
+                await page.evaluate("document.title = 'HID Worker'")
+                hide_from_taskbar_by_title("HID Worker")
+                await hide_window(page)
 
         def refresh_from_tray():
             asyncio.run_coroutine_threadsafe(refresh_once(), loop)
 
         def toggle_window(hidden: bool):
             if hidden:
+                # schowaj
                 asyncio.run_coroutine_threadsafe(
                     page.evaluate("document.title = 'HID Worker'"), loop
                 ).result()
                 hide_from_taskbar_by_title("HID Worker")
                 asyncio.run_coroutine_threadsafe(hide_window(page), loop)
             else:
+                # pokaż
                 show_on_taskbar_by_title("HID Worker")
                 asyncio.run_coroutine_threadsafe(show_window(page), loop)
 
         tray._refresh_cb = refresh_from_tray
         tray._toggle_cb = toggle_window
 
-        # 6) Periodic refresh (every 10 min)
+        # 3) Periodic refresh (co 10 min) – pełny flow (reload + reconnect)
         while not tray._loop_stop.is_set():
             await refresh_once()
             for _ in range(POLL_EVERY_SECONDS // 5):
