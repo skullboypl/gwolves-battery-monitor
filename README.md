@@ -3,6 +3,10 @@
 A lightweight Python tray utility that displays the **battery percentage of your G-Wolves Fenrir Max 8K (and similar WebHID mice)**.  
 It uses **Playwright** to open [mouse.xyz](https://mouse.xyz), automatically connects to your dongle via the HID picker, and shows the current battery level in the system tray.
 
+<img width="124" height="61" alt="{9F710745-2D2A-4189-B95E-280E9EAC97B5}" src="https://github.com/user-attachments/assets/28015347-a483-4c71-9a58-ac7f6cdfbd17" />
+
+<img width="195" height="114" alt="{AF8AC9E8-BD7C-480C-9685-A24572C3971C}" src="https://github.com/user-attachments/assets/7c2612f7-a1ab-456b-9ad5-56c347c3f97c" />
+
 ---
 
 ## ✨ Features
