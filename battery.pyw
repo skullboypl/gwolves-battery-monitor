@@ -43,7 +43,7 @@ else:
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(LOCAL_MS)
 
 
-URL = "https://mouse.xyz"
+URL = "https://mouse.fit" # NEW LINK FOR OLD WEBSITE Mouse.xyz is new website
 POLL_EVERY_SECONDS = 10 * 60
 CONNECT_BUTTONS = ['button:has(.n-button__content:has-text("Connect"))']
 PERCENT_RE = re.compile(r'(\d{1,3})\s*%')
