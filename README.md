@@ -1,5 +1,8 @@
 # 🖱️ G-Wolves Battery Monitor
 
+NEW BETTER NATIVE VERSION HERE: https://github.com/skullboypl/g-wolves-mouse-tray-battery-and-desktop-widget
+Without BROWSER
+
 A lightweight Python tray utility that displays the **battery percentage of your G-Wolves Fenrir Max 8K (and similar WebHID mice)**.  
 It uses **Playwright** to open [mouse.xyz](https://mouse.xyz), automatically connects to your dongle via the HID picker, and shows the current battery level in the system tray.
 
